@@ -1,8 +1,14 @@
+import os
 import discord
 from discord import app_commands
-from token_by_correo import TOKEN
-intents = discord.Intents.default()
+from dotenv import load_dotenv
 
+
+load_dotenv("token_by_correo.env")
+TOKEN = os.getenv("TOKEN")
+
+
+intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
