@@ -1,0 +1,15 @@
+*.env
+token_by_correo.env
+
+.venv/
+venv/
+env/
+
+.idea/
+.vscode/
+
+__pycache__/
+*.py[cod]
+
+*.log
+*.tmp
