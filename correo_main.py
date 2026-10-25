@@ -38,21 +38,18 @@ async def on_ready():
     except Exception as e:
         print(f'Ошибка синхронизации: {e}')
 
-@tree.command(name="start", description="Запустить бота")
-
 # ========================================= БЛОК 6: Обработчик команды /start (отправляет приветствие пользователю) ===========================================
 @tree.command(name="start", description="Получить приветствие от бота")
 async def start(interaction: discord.Interaction):
-    await interaction.response.send_message(f'Привет, {interaction.user.mention}! Чем займемся?.')
     await interaction.response.send_message(f'Привет, {interaction.user.mention}! Чем займемся?😁')
 
 
-@tree.command(name="stop", description="Пока - пока")
 # ========================================= БЛОК 7: Обработчик команды /stop (отправляет ссылку на гифку) ================================================
-@tree.command(name="stop", description="Связь")
+
+@tree.command(name="stop", description="Пока - пока")
 async def stop(interaction: discord.Interaction):
-    await interaction.response.send_message(f'Пока, {interaction.user.mention}!')
-    await interaction.response.send_message('https://klipy.com/gifs/sviaz-3')
+    await interaction.response.send_message(f'https://klipy.com/gifs/sviaz-3')
+
 
 
 # ======================================= БЛОК 8: Обработчик команды /ask (добавление запроса к текстовой нейросети в очередь Redis) ==============================
@@ -99,5 +96,5 @@ async def gen(interaction: discord.Interaction, prompt: str):
 async def promt(interaction: discord.Interaction, prompt: str):
     await interaction.response.send_message(f'Промт: {prompt}')
 
-# ======================================== БЛОК 10: Запуск Discord-бота с использованием защищенного токена =======================================
+# ======================================== БЛОК 10: Запуск ============================================
 client.run(TOKEN)
