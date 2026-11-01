@@ -4,6 +4,7 @@ token_by_correo.env
 .venv/
 venv/
 env/
+.env
 
 .idea/
 .vscode/
