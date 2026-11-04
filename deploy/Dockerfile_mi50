@@ -1,0 +1,50 @@
+FROM rocm/dev-ubuntu-22.04:6.2.4
+
+RUN apt-get update && apt-get install -y \
+    git \
+    cmake \
+    build-essential \
+    libcurl4-openssl-dev \
+    libgomp1 \
+    curl \
+    hipblas-dev \
+    rocblas-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+RUN git clone --depth 1 https://github.com/ggml-org/llama.cpp.git .
+
+ENV CFLAGS="-march=ivybridge -mtune=ivybridge -mno-avx2 -mno-fma -mno-bmi -mno-bmi2"
+ENV CXXFLAGS="-march=ivybridge -mtune=ivybridge -mno-avx2 -mno-fma -mno-bmi -mno-bmi2"
+
+RUN HIPCXX="$(hipconfig -l)/clang" HIP_PATH="$(hipconfig -R)" \
+    cmake -S . -B build \
+    -DCMAKE_PREFIX_PATH=/opt/rocm \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_FLAGS="${CFLAGS}" \
+    -DCMAKE_CXX_FLAGS="${CXXFLAGS}" \
+    -DCMAKE_HIP_FLAGS="-Xarch_host -march=ivybridge -Xarch_host -mno-avx2 -Xarch_host -mno-fma -Xarch_host -mno-bmi2" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-Wl,--allow-multiple-definition" \
+    -DCMAKE_EXE_LINKER_FLAGS="-Wl,--allow-multiple-definition" \
+    -DGGML_HIP=ON \
+    -DAMDGPU_TARGETS="gfx906" \
+    -DGGML_NATIVE=OFF \
+    -DGGML_SSE42=ON \
+    -DGGML_AVX=ON \
+    -DGGML_F16C=ON \
+    -DGGML_AVX2=OFF \
+    -DGGML_FMA=OFF \
+    -DGGML_BMI2=OFF \
+    -DGGML_AVX512=OFF \
+    -DLLAMA_BUILD_TESTS=OFF \
+    -DLLAMA_BUILD_EXAMPLES=OFF \
+    && cmake --build build --config Release --target llama-server -j$(nproc)
+
+RUN cp build/bin/llama-server /app/llama-server && \
+    find build -name "*.so*" -exec cp -P {} /usr/local/lib/ \; && \
+    ldconfig
+
+ENV HSA_OVERRIDE_GFX_VERSION=9.0.6
+
+ENTRYPOINT ["/app/llama-server"]
