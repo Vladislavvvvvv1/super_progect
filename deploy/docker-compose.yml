@@ -26,4 +26,28 @@ services:
       -fa on
       -ctk q8_0
       -ctv q8_0
-
+  comfyui:
+    build:
+      context: .
+      dockerfile: Dockerfile_comfy
+    image: comfyui-mi50:local
+    container_name: comfy_nova
+    restart: unless-stopped
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=9.0.6
+      - ROCR_VISIBLE_DEVICES=0
+      - HIP_VISIBLE_DEVICES=0
+      - NPY_DISABLE_CPU_FEATURES=AVX2,FMA3,BMI,BMI2
+      - ATEN_CPU_CAPABILITY=avx
+      - OPENBLAS_CORETYPE=IvyBridge
+    volumes:
+      - ./models/comfy/checkpoints:/app/ComfyUI/models/checkpoints
+      - ./models/comfy/loras:/app/ComfyUI/models/loras
+      - ./models/comfy/vae:/app/ComfyUI/models/vae
+      - ./comfy_output:/app/ComfyUI/output
+    ports:
+      - "8188:8188"
+    command: --listen 0.0.0.0 --port 8188 --fp8_e4m3fn-unet --fp16-vae --use-pytorch-cross-attention
