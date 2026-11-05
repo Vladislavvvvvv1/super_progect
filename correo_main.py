@@ -66,7 +66,7 @@ async def check_ai_access(interaction: discord.Interaction) -> bool:
     # 4. Если пароля нет или истек, а пользователь пишет в приватном канале
     if is_private_channel:
         await interaction.response.send_message(
-            "🔒 Безлимита истек! Введи `/password`, чтобы продлить доступ к приватному чату.",
+            "🔒 Безлимит истек! Введи `/password`, чтобы продлить доступ к приватному чату.",
             ephemeral=True
         )
         return False
@@ -159,14 +159,14 @@ async def on_ready():
         synced = await tree.sync()
         print(f'Бот💢: Синхронизировано команд: {len(synced)}')
     except Exception as e:
-        print(f'Бот💢: Ошибка синхронизации: {e} я ломаюсь не потому-что так хочу а потому-что ты рукожоп 💢')
+        print(f'Бот💢: Ошибка синхронизации: {e} я ломаюсь не потому-что так хочу а потому-что рукожоп на разрабе 💢')
 
     if not hasattr(client, 'result_listener_task'):
         client.result_listener_task = client.loop.create_task(listen_results())
 
 
 # ========================================= БЛОК 6: Обработчик команды /start ===========================================
-@tree.command(name="start", description="Получить приветствие от бота")
+@tree.command(name="start", description="Привет")
 async def start(interaction: discord.Interaction):
     await interaction.response.send_message(f'Привет, {interaction.user.mention}! Чем займемся?😁')
 
@@ -185,7 +185,7 @@ async def stop(interaction: discord.Interaction):
 
 
 # ======================================= БЛОК 8: Обработчик команды /ask и Redis ==============================
-@tree.command(name="ask", description="Задать вопрос текстовой нейросети (Qwen 27B)")
+@tree.command(name="ask", description="Текстовый агент")
 async def ask(interaction: discord.Interaction, prompt: str):
     if not await check_ai_access(interaction):
         return
@@ -208,7 +208,7 @@ async def ask(interaction: discord.Interaction, prompt: str):
 
 
 # ============================== БЛОК 9: Обработчик команды /gen ==============================
-@tree.command(name="gen", description="Сгенерировать изображение Nova Anime XL")
+@tree.command(name="gen", description="Сгенерировать изображение")
 async def gen(interaction: discord.Interaction, prompt: str):
     if not await check_ai_access(interaction):
         return
@@ -231,7 +231,7 @@ async def gen(interaction: discord.Interaction, prompt: str):
 
 
 # ============================== БЛОК 9.1: Авторизация по паролю ==============================
-@tree.command(name="password", description="Ввести секретный пароль для снятия лимитов")
+@tree.command(name="password", description="Свой?")
 @app_commands.describe(key="Секретный пароль💢:")
 async def password_cmd(interaction: discord.Interaction, key: str):
     user = interaction.user
@@ -246,7 +246,7 @@ async def password_cmd(interaction: discord.Interaction, key: str):
         )
         return
 
-    #Если пароль НЕВЕРНЫЙ
+    #Если пароль НЕВЕРНЫЙ - КАЗНЬ          ГОООООООООООЙДА
     if key.strip() not in VALID_PASSWORDS:
         fails = await redis_client.incr(f"pass_fails:{user_id}")
         await redis_client.expire(f"pass_fails:{user_id}", TIMEOUT_TTL)
@@ -281,8 +281,7 @@ async def password_cmd(interaction: discord.Interaction, key: str):
     await redis_client.delete(f"pass_fails:{user_id}")
 
     await interaction.response.send_message(
-        "🔓 **Пароль принят! Безлимит активирован на да дней.**\n"
-        "Теперь ты можешь создать личную комнату командой `/gen_chat` или использовать бота без ограничений!",
+        "Принято",
         ephemeral=True
     )
 
