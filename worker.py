@@ -12,6 +12,7 @@ REDIS_HOST = "192.168.1.10"  # МЕНЯЙ IP своей Master VM --------------
 REDIS_PORT = 6379
 TASK_QUEUE = "tasks_queue"
 RESULT_QUEUE = "results_queue"
+REDIS_PASSWORD = "d8K9mP2vL1xY7zQ5wT8rN3jF4="
 
 LLAMA_CONTAINER_NAME = "llama_qwen"
 LLAMA_URL = "http://127.0.0.1:8080"
@@ -29,6 +30,12 @@ class GPUWorker:
         self.llama_container = self.docker_client.containers.get(LLAMA_CONTAINER_NAME)
         self.active_model = "qwen"  # По дефолту в VRAM всегда Qwen ------------
         self.ensure_qwen_loaded()
+        self.rds = redis.Redis(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            password=REDIS_PASSWORD,
+            decode_responses=True
+        )
 
     # --- УПРАВЛЕНИЕ VRAM ---
 

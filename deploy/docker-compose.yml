@@ -2,7 +2,7 @@ services:
   llama-server:
     build:
       context: .
-      dockerfile: Dockerfile_mi50
+      dockerfile: Dockerfile_llama_cpp
     image: llama-cpp-mi50:local
     container_name: llama_qwen
     restart: unless-stopped

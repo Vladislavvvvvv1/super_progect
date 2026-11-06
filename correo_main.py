@@ -11,16 +11,22 @@ from discord import app_commands
 import redis.asyncio as redis
 from dotenv import load_dotenv
 
-# ============================================ БЛОК 2: Загрузка конфигурации и токена из env файла ============================================
+# ============================================ БЛОК 2: Загрузка из из env  ============================================
 load_dotenv('token_by_correo.env')
+load_dotenv('vip_passwords.env')
+
 TOKEN = os.getenv('TOKEN')
 
 REDIS_HOST = 'localhost'
 REDIS_PORT = 6379
-TASK_QUEUE = 'tasks_queue'      # Очередь задач
-RESULT_QUEUE = 'results_queue'  # Очередь ответов от воркера
+REDIS_PASSWORD = os.getenv('REDIS_PASSWORD')
+TASK_QUEUE = 'tasks_queue'
+RESULT_QUEUE = 'results_queue'
 
-VALID_PASSWORDS = {"I-am-a-tsundere.", "I-am-a-tsundere"}  # Пароль
+# Считываем строку из env, режем по запятой и превращаем в цундерку
+raw_passwords = os.getenv('VALID_PASSWORDS', '')
+VALID_PASSWORDS = {p.strip() for p in raw_passwords.split(',') if p.strip()}
+
 FREE_LIMIT = 5                  # Лимит запросов для простых смертных
 FREE_LIMIT_TTL = 24 * 3600      # Сброс лимита через 24 часа
 VIP_TTL = 31 * 24 * 3600        # Срок действия пароля --------------------------------------------------------- Я ЗДЕСЬ Я ВИПКА
@@ -33,20 +39,27 @@ client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
 # ============================================= БЛОК 4: Асинхронный клиент Redis ============================================
-redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
-
+redis_client = redis.Redis(
+    host=REDIS_HOST,
+    port=REDIS_PORT,
+    password=REDIS_PASSWORD,  # если в redis.conf выключен "requirepass", то закомментируй
+    decode_responses=True,
+    socket_timeout=15,
+    retry_on_timeout=True,
+    health_check_interval=30
+)
 
 # ============================================= БЛОК 4.1: Проверка доступа, канала, лимитов ============================================
 async def check_ai_access(interaction: discord.Interaction) -> bool:
     """Проверяет, есть ли у пользователя доступ к ИИ в текущем канале и не исчерпан ли суточный лимит."""
     user_id = interaction.user.id
 
-    #Запрещаем писать боту в ЛС в обход сервера
+    #Запрещаем писать боту в ЛС в обход сервера                                                                                                                                                                большой брат следит за тобой
     if interaction.guild is None:
         await interaction.response.send_message("❌ Бот работает только на сервере!", ephemeral=True)
         return False
 
-    # Смотрим не в тайм-ауте ли пользователь за перебор
+    # Смотрим не в тайм-ауте ли пользователь за форс
     if await redis_client.exists(f"bot_ban:{user_id}"):
         ttl = await redis_client.ttl(f"bot_ban:{user_id}")
         await interaction.response.send_message(
@@ -59,11 +72,11 @@ async def check_ai_access(interaction: discord.Interaction) -> bool:
     is_vip = await redis_client.exists(f"vip:{user_id}")
     is_private_channel = interaction.channel.name.startswith("ai-")
 
-    # Если пароль активен — нет лимитов нет запретов
+    # Если пароль активен — нет лимитов, нет запретов
     if is_vip:
         return True
 
-    # 4. Если пароля нет или истек, а пользователь пишет в приватном канале
+    # 4. Если пароля нет или истек, то забираем благо
     if is_private_channel:
         await interaction.response.send_message(
             "🔒 Безлимит истек! Введи `/password`, чтобы продлить доступ к приватному чату.",
@@ -89,7 +102,7 @@ async def check_ai_access(interaction: discord.Interaction) -> bool:
 
     new_used = await redis_client.incr(f"free_used:{user_id}")
 
-    # Если это первый запрос за сутки — вешаем таймер на 24 часа
+    # Если это первый запрос за сутки — таймер на 24ч
     if new_used == 1 or await redis_client.ttl(f"free_used:{user_id}") == -1:
         await redis_client.expire(f"free_used:{user_id}", FREE_LIMIT_TTL)
 
@@ -124,7 +137,7 @@ async def listen_results():
                 await message.edit(content=f"❌ **Ошибка генерации:**\n`{data}`")
                 continue
 
-            # --- ГОТОВА КАРТИНКА  ---
+            # --- ГОТОВА КАРТИНКА ---
             if task_type == "image":
                 image_bytes = base64.b64decode(data)
                 file = discord.File(io.BytesIO(image_bytes), filename="generated.png")
@@ -140,12 +153,18 @@ async def listen_results():
                     for chunk in chunks[1:]:
                         await channel.send(content=chunk, reference=message)
 
+        except (redis.TimeoutError, asyncio.TimeoutError):
+            continue
+
+        except (discord.NotFound, discord.Forbidden) as e:
+            print(f"Бот💢: Не удалось обновить сообщение в Discord: {e}")
+
         except Exception as e:
             print(f"Бот💢: Ошибка в цикле чтения результатов: {e}")
             await asyncio.sleep(2)
 
 
-# ============================================= БЛОК 5: Событие успешного запуска бота и синхронизация слеш-команд ==============================
+# ============================================= БЛОК 5: Логи и синхронизация слеш-команд ==============================
 @client.event
 async def on_ready():
     print(f'Бот💢: Бот {client.user} успешно запущен!')
@@ -246,7 +265,7 @@ async def password_cmd(interaction: discord.Interaction, key: str):
         )
         return
 
-    #Если пароль НЕВЕРНЫЙ - КАЗНЬ          ГОООООООООООЙДА
+    #Если пароль неверный - КАЗНЬ                                                                       ГОООООООООООЙДА
     if key.strip() not in VALID_PASSWORDS:
         fails = await redis_client.incr(f"pass_fails:{user_id}")
         await redis_client.expire(f"pass_fails:{user_id}", TIMEOUT_TTL)
@@ -289,14 +308,19 @@ async def password_cmd(interaction: discord.Interaction, key: str):
 # ============================== БЛОК 9.2: Создание и удаление приватного чата ==============================
 @tree.command(name="gen_chat", description="Создать личный приватный канал для общения с ИИ")
 async def gen_chat(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
     guild = interaction.guild
     user = interaction.user
     user_id = user.id
 
-    # Проверяем, ввел ли пользователь пароль
+    if guild is None:
+        await interaction.followup.send("❌ Команда работает только на сервере!", ephemeral=True)
+        return
+
     is_vip = await redis_client.exists(f"vip:{user_id}")
     if not is_vip:
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "🔒 Создавать личные комнаты могут только... Vip`ки 💢:!\n"
             "Сначала введи пароль `/password key: твой_пароль`.",
             ephemeral=True
@@ -305,9 +329,71 @@ async def gen_chat(interaction: discord.Interaction):
 
     channel_name = f"ai-{user.name.lower()}"
 
-    # Проверяем нет ли уже созданного канала у этого пользователя
     existing_channel = discord.utils.get(guild.text_channels, name=channel_name)
     if existing_channel:
-        await interaction.response.send_message()
+        await interaction.followup.send(
+            f"💢 У тебя уже есть личная комната: {existing_channel.mention}!",
+            ephemeral=True
+        )
+        return
+
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        user: discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True
+        ),
+        guild.me: discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            manage_channels=True
+        )
+    }
+
+    try:
+        new_channel = await guild.create_text_channel(
+            name=channel_name,
+            overwrites=overwrites,
+            reason=f"Приватный ИИ-чат для {user}"
+        )
+        await interaction.followup.send(
+            f"✅ Личная комната создана: {new_channel.mention}",
+            ephemeral=True
+        )
+        await new_channel.send(
+            f"Привет, {user.mention}! Это твой личный чат. Пиши запросы через `/ask` или `/gen` 💢"
+        )
+    except discord.Forbidden:
+        await interaction.followup.send(
+            "❌ У меня нет прав на создание каналов (`Manage Channels`)! Проверь роль бота в настройках сервера.",
+            ephemeral=True
+        )
+    except Exception as e:
+        await interaction.followup.send(f"❌ Ошибка при создании канала: `{e}`", ephemeral=True)
+
+
+@tree.command(name="del_chat", description="Удалить свой личный приватный канал")
+async def del_chat(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    if interaction.guild is None:
+        await interaction.followup.send("❌ Команда работает только на сервере!", ephemeral=True)
+        return
+
+    channel_name = f"ai-{interaction.user.name.lower()}"
+    existing_channel = discord.utils.get(interaction.guild.text_channels, name=channel_name)
+
+    if not existing_channel:
+        await interaction.followup.send("💢 У тебя нет активной личной комнаты.", ephemeral=True)
+        return
+
+    try:
+        await existing_channel.delete(reason=f"Удалено владельцем {interaction.user}")
+        if interaction.channel != existing_channel:
+            await interaction.followup.send("🗑️ Твоя личная комната удалена.", ephemeral=True)
+    except discord.Forbidden:
+        await interaction.followup.send("❌ Не хватает прав для удаления канала!", ephemeral=True)
 # ======================================== БЛОК 10: Поехали ============================================
 client.run(TOKEN)
