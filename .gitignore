@@ -1,7 +1,6 @@
 *.env
 token_by_correo.env
 vip_passwords.env
-
 .venv/
 venv/
 env/
