@@ -1,5 +1,6 @@
 import os
 import io
+import re
 import json
 import base64
 import asyncio
@@ -11,7 +12,7 @@ from discord import app_commands
 import redis.asyncio as redis
 from dotenv import load_dotenv
 
-# ============================================ БЛОК 2: Загрузка из из env  ============================================
+# ============================================ БЛОК 2: Загрузка из env ============================================
 load_dotenv('token_by_correo.env')
 load_dotenv('vip_passwords.env')
 
@@ -45,16 +46,23 @@ redis_client = redis.Redis(
     password=REDIS_PASSWORD,  # если в redis.conf выключен "requirepass", то закомментируй
     decode_responses=True,
     socket_timeout=15,
-    retry_on_timeout=True,
+    socket_connect_timeout=5,
     health_check_interval=30
 )
+
+
+def get_private_channel_name(user: discord.abc.User) -> str:
+    """Формирует валидное имя приватного канала без точек и спецсимволов (как это делает Discord)."""
+    clean_name = re.sub(r"[^a-z0-9_-]", "", user.name.lower())
+    return f"ai-{clean_name or user.id}"
+
 
 # ============================================= БЛОК 4.1: Проверка доступа, канала, лимитов ============================================
 async def check_ai_access(interaction: discord.Interaction) -> bool:
     """Проверяет, есть ли у пользователя доступ к ИИ в текущем канале и не исчерпан ли суточный лимит."""
     user_id = interaction.user.id
 
-    #Запрещаем писать боту в ЛС в обход сервера                                                                                                                                                                большой брат следит за тобой
+    # Запрещаем писать боту в ЛС в обход сервера                                                                                                                                     большой брат следит за тобой
     if interaction.guild is None:
         await interaction.response.send_message("❌ Бот работает только на сервере!", ephemeral=True)
         return False
@@ -63,14 +71,15 @@ async def check_ai_access(interaction: discord.Interaction) -> bool:
     if await redis_client.exists(f"bot_ban:{user_id}"):
         ttl = await redis_client.ttl(f"bot_ban:{user_id}")
         await interaction.response.send_message(
-            f"⏳ Ты в тайм-ауте за перебор пароля! Жди еще {ttl // 60} мин.",
+            f"⏳ Ты в тайм-ауте за перебор пароля! Жди еще {max(1, ttl // 60)} мин.",
             ephemeral=True
         )
         return False
 
-    #Глядим введен ли у пользователя пароль
+    # Глядим введен ли у пользователя пароль
     is_vip = await redis_client.exists(f"vip:{user_id}")
-    is_private_channel = interaction.channel.name.startswith("ai-")
+    channel_name = getattr(interaction.channel, "name", "")
+    is_private_channel = channel_name.startswith("ai-")
 
     # Если пароль активен — нет лимитов, нет запретов
     if is_vip:
@@ -124,8 +133,16 @@ async def listen_results():
             _, raw_result = item
             result = json.loads(raw_result)
 
-            task_id = int(result.get("task_id"))
-            channel_id = int(result.get("channel_id"))
+            raw_task_id = result.get("task_id")
+            raw_channel_id = result.get("channel_id")
+
+            # Защита от битых ID (например, "unknown" или None при ошибке парсинга на воркере)
+            if not str(raw_task_id).isdigit() or not str(raw_channel_id).isdigit():
+                print(f"Бот💢: Пропущен ответ с некорректными ID: {result}")
+                continue
+
+            task_id = int(raw_task_id)
+            channel_id = int(raw_channel_id)
             task_type = result.get("type")
             status = result.get("status")
             data = result.get("data", "")
@@ -145,6 +162,9 @@ async def listen_results():
 
             # --- ГОТОВ ТЕКСТ ---
             elif task_type == "text":
+                if not data:
+                    data = "⚠️ Модель вернула пустой ответ."
+
                 if len(data) <= 2000:
                     await message.edit(content=data)
                 else:
@@ -174,11 +194,13 @@ async def on_ready():
     except Exception as e:
         print(f'Бот💢: Ошибка подключения к редиске: {e} (,,>﹏<,,💢)')
 
-    try:
-        synced = await tree.sync()
-        print(f'Бот💢: Синхронизировано команд: {len(synced)}')
-    except Exception as e:
-        print(f'Бот💢: Ошибка синхронизации: {e} я ломаюсь не потому-что так хочу а потому-что рукожоп на разрабе 💢')
+    if not hasattr(client, 'synced_once'):
+        try:
+            synced = await tree.sync()
+            client.synced_once = True
+            print(f'Бот💢: Синхронизировано команд: {len(synced)}')
+        except Exception as e:
+            print(f'Бот💢: Ошибка синхронизации: {e} я ломаюсь не потому-что так хочу а потому-что рукожоп на разрабе 💢')
 
     if not hasattr(client, 'result_listener_task'):
         client.result_listener_task = client.loop.create_task(listen_results())
@@ -193,79 +215,132 @@ async def start(interaction: discord.Interaction):
 # ========================================= БЛОК 7: Обработчик команды /stop ================================================
 @tree.command(name="stop", description="Пока - пока")
 async def stop(interaction: discord.Interaction):
-    gifs = random.choice(['https://klipy.com/gifs/sviaz-3',
-                          'https://klipy.com/gifs/anime-tsundere-6',
-                          'https://tenor.com/view/dog-ball-dog-gets-ball-meme-bottles-gif-25461285',
-                          'https://cdn.discordapp.com/attachments/1277529653879373876/1534820706120892437/ezgif-749128c5d625158b.gif',
-                          'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExZDBxdTJudnI1bTE2cGlvOWZoeXY5cXFraDZwMHFmbzB0dmlteTZlcyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/HhAswFzculTnQ0abml/giphy.gif',
-                          'https://tenor.com/view/%D0%B3%D0%BE%D0%BB%D0%BE%D0%B2%D0%BE%D0%BB%D0%BE%D0%BC%D0%BA%D0%B0-%D1%8D%D0%BC%D0%BE%D1%86%D0%B8%D1%8F-%D0%B8%D0%B2%D0%B0%D0%BD-%D0%B7%D0%BE%D0%BB%D0%BE-gif-16215278410832285228',
-                          ])
+    gifs = random.choice([
+        'https://klipy.com/gifs/sviaz-3',
+        'https://klipy.com/gifs/anime-tsundere-6',
+        'https://tenor.com/view/dog-ball-dog-gets-ball-meme-bottles-gif-25461285',
+        'https://cdn.discordapp.com/attachments/1277529653879373876/1534820706120892437/ezgif-749128c5d625158b.gif',
+        'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExZDBxdTJudnI1bTE2cGlvOWZoeXY5cXFraDZwMHFmbzB0dmlteTZlcyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/HhAswFzculTnQ0abml/giphy.gif',
+        'https://tenor.com/view/%D0%B3%D0%BE%D0%BB%D0%BE%D0%B2%D0%BE%D0%BB%D0%BE%D0%BC%D0%BA%D0%B0-%D1%8D%D0%BC%D0%BE%D1%86%D0%B8%D1%8F-%D0%B8%D0%B2%D0%B0%D0%BD-%D0%B7%D0%BE%D0%BB%D0%BE-gif-16215278410832285228',
+    ])
     await interaction.response.send_message(gifs)
 
 
-# ======================================= БЛОК 8: Обработчик команды /ask и Redis ==============================
+# ============================================= БЛОК 8: СБОРЩИК ПЕЙЛОАДА (PAYLOAD BUILDER) ============================================
+def build_task_payload(
+    message_id: int,
+    channel_id: int,
+    user_id: int,
+    task_type: str,
+    prompt: str,
+    user_name: str | None = None,
+    extra_context: str | None = None
+) -> str:
+
+
+    clean_prompt = prompt.strip()
+    if not clean_prompt:
+        raise ValueError("Промпт не может быть пустым.")
+
+    if task_type == "text":
+        parts = []
+        if user_name:
+            parts.append(f"[Пользователь: {user_name}]")
+        if extra_context:
+            parts.append(f"[Контекст:\n{extra_context.strip()}]")
+        parts.append(clean_prompt)
+        final_prompt = "\n\n".join(parts)
+    else:
+        final_prompt = clean_prompt
+
+    task_payload = {
+        "task_id": str(message_id),   # Строка в воркере, в listen_results() кастуется обратно в int
+        "channel_id": channel_id,     # Нужен воркеру для возврата в results_queue
+        "user_id": user_id,
+        "type": task_type,            # "text" или "image"
+        "prompt": final_prompt
+    }
+
+    # ensure_ascii=False сохраняет читаемую кириллицу в Redis
+    return json.dumps(task_payload, ensure_ascii=False)
+
+
+# ======================================= БЛОК 9: Обработчик команды /ask и Redis ==============================
 @tree.command(name="ask", description="Текстовый агент")
 async def ask(interaction: discord.Interaction, prompt: str):
+    if not prompt.strip():
+        await interaction.response.send_message("❌ Промпт не может быть пустым!", ephemeral=True)
+        return
+
     if not await check_ai_access(interaction):
         return
 
     await interaction.response.defer(thinking=True)
 
     msg = await interaction.followup.send(
-        f"📌 Задача в очереди, ждем ответ от Агента...",
+        "📌 Задача в очереди, ждем ответ от Агента...",
         wait=True
     )
 
-    task = {
-        "task_id": str(msg.id),
-        "channel_id": interaction.channel_id,
-        "user_id": interaction.user.id,
-        "type": "text",
-        "prompt": prompt
-    }
-    await redis_client.rpush(TASK_QUEUE, json.dumps(task))
+    raw_payload = build_task_payload(
+        message_id=msg.id,
+        channel_id=interaction.channel_id,
+        user_id=interaction.user.id,
+        task_type="text",
+        prompt=prompt,
+        user_name=interaction.user.display_name
+    )
+    await redis_client.rpush(TASK_QUEUE, raw_payload)
 
 
-# ============================== БЛОК 9: Обработчик команды /gen ==============================
+# ============================== БЛОК 10: Обработчик команды /gen ==============================
 @tree.command(name="gen", description="Сгенерировать изображение")
 async def gen(interaction: discord.Interaction, prompt: str):
+    if not prompt.strip():
+        await interaction.response.send_message("❌ Промпт не может быть пустым!", ephemeral=True)
+        return
+
     if not await check_ai_access(interaction):
         return
 
     await interaction.response.defer(thinking=True)
 
     msg = await interaction.followup.send(
-        f"📌 Запрос на генерацию изображения в очереди...",
+        "📌 Запрос на генерацию изображения в очереди...",
         wait=True
     )
 
-    task = {
-        "task_id": str(msg.id),
-        "channel_id": interaction.channel_id,
-        "user_id": interaction.user.id,
-        "type": "image",
-        "prompt": prompt
-    }
-    await redis_client.rpush(TASK_QUEUE, json.dumps(task))
+    raw_payload = build_task_payload(
+        message_id=msg.id,
+        channel_id=interaction.channel_id,
+        user_id=interaction.user.id,
+        task_type="image",
+        prompt=prompt
+    )
+    await redis_client.rpush(TASK_QUEUE, raw_payload)
 
 
-# ============================== БЛОК 9.1: Авторизация по паролю ==============================
+# ============================== БЛОК 10.1: Авторизация по паролю ==============================
 @tree.command(name="password", description="Свой?")
 @app_commands.describe(key="Секретный пароль💢:")
 async def password_cmd(interaction: discord.Interaction, key: str):
+    if interaction.guild is None:
+        await interaction.response.send_message("❌ Вводить пароль можно только на сервере!", ephemeral=True)
+        return
+
     user = interaction.user
     user_id = user.id
 
-    #Проверяем не в бане ли пользователь за перебор
+    # Проверяем не в бане ли пользователь за перебор
     if await redis_client.exists(f"bot_ban:{user_id}"):
         ttl = await redis_client.ttl(f"bot_ban:{user_id}")
         await interaction.response.send_message(
-            f"⏳ Ты в тайм-ауте за перебор пароля! Жди еще {ttl // 60} мин.",
+            f"⏳ Ты в тайм-ауте за перебор пароля! Жди еще {max(1, ttl // 60)} мин.",
             ephemeral=True
         )
         return
 
-    #Если пароль неверный - КАЗНЬ                                                                       ГОООООООООООЙДА
+    # Если пароль неверный - КАЗНЬ                                                                       ГОООООООООООЙДА
     if key.strip() not in VALID_PASSWORDS:
         fails = await redis_client.incr(f"pass_fails:{user_id}")
         await redis_client.expire(f"pass_fails:{user_id}", TIMEOUT_TTL)
@@ -276,7 +351,8 @@ async def password_cmd(interaction: discord.Interaction, key: str):
 
             timeout_until = discord.utils.utcnow() + datetime.timedelta(hours=1)
             try:
-                await user.timeout(timeout_until, reason="5 неверных попыток ввода пароля")
+                if isinstance(user, discord.Member):
+                    await user.timeout(timeout_until, reason="5 неверных попыток ввода пароля")
                 await interaction.response.send_message(
                     "🚫 5 неверных попыток 🚫! Ты отправлен в тайм-аут на 1 час.",
                     ephemeral=True
@@ -295,7 +371,7 @@ async def password_cmd(interaction: discord.Interaction, key: str):
         )
         return
 
-    #Если пароль ВЕРНЫЙ — даем VIP на n дней и сбрасываем ошибки
+    # Если пароль ВЕРНЫЙ — даем VIP на n дней и сбрасываем ошибки
     await redis_client.set(f"vip:{user_id}", "1", ex=VIP_TTL)
     await redis_client.delete(f"pass_fails:{user_id}")
 
@@ -305,7 +381,7 @@ async def password_cmd(interaction: discord.Interaction, key: str):
     )
 
 
-# ============================== БЛОК 9.2: Создание и удаление приватного чата ==============================
+# ============================== БЛОК 10.2: Создание и удаление приватного чата ==============================
 @tree.command(name="gen_chat", description="Создать личный приватный канал для общения с ИИ")
 async def gen_chat(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
@@ -327,7 +403,7 @@ async def gen_chat(interaction: discord.Interaction):
         )
         return
 
-    channel_name = f"ai-{user.name.lower()}"
+    channel_name = get_private_channel_name(user)
 
     existing_channel = discord.utils.get(guild.text_channels, name=channel_name)
     if existing_channel:
@@ -382,7 +458,7 @@ async def del_chat(interaction: discord.Interaction):
         await interaction.followup.send("❌ Команда работает только на сервере!", ephemeral=True)
         return
 
-    channel_name = f"ai-{interaction.user.name.lower()}"
+    channel_name = get_private_channel_name(interaction.user)
     existing_channel = discord.utils.get(interaction.guild.text_channels, name=channel_name)
 
     if not existing_channel:
@@ -395,5 +471,7 @@ async def del_chat(interaction: discord.Interaction):
             await interaction.followup.send("🗑️ Твоя личная комната удалена.", ephemeral=True)
     except discord.Forbidden:
         await interaction.followup.send("❌ Не хватает прав для удаления канала!", ephemeral=True)
-# ======================================== БЛОК 10: Поехали ============================================
+
+
+# ======================================== БЛОК 11: Поехали ============================================
 client.run(TOKEN)
