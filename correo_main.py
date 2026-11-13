@@ -151,7 +151,7 @@ async def listen_results():
             message = await channel.fetch_message(task_id)
 
             if status != "ok":
-                await message.edit(content=f"❌ **Ошибка генерации:**\n`{data}`")
+                await message.edit(content=f"❌ **Ошибка генерации:**\n`{data[:1800]}`")
                 continue
 
             # --- ГОТОВА КАРТИНКА ---
