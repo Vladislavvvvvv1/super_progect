@@ -1,3 +1,5 @@
+# Рекомендуется 6.2.4 для актуального llama.cpp + MI50 (gfx906).
+# Если нужен строго 6.0.2, оставьте 6.0.2, но раскомментируйте git checkout ниже.
 FROM rocm/dev-ubuntu-22.04:6.2.4
 
 RUN apt-get update && apt-get install -y \
@@ -15,6 +17,7 @@ WORKDIR /app
 
 RUN git clone --depth 1 https://github.com/ggml-org/llama.cpp.git .
 
+# Жестко ограничиваем инструкции хост-процессора уровнем Ivy Bridge (Xeon E5 v2)
 ENV CFLAGS="-march=ivybridge -mtune=ivybridge -mno-avx2 -mno-fma -mno-bmi -mno-bmi2"
 ENV CXXFLAGS="-march=ivybridge -mtune=ivybridge -mno-avx2 -mno-fma -mno-bmi -mno-bmi2"
 
@@ -41,10 +44,12 @@ RUN HIPCXX="$(hipconfig -l)/clang" HIP_PATH="$(hipconfig -R)" \
     -DLLAMA_BUILD_EXAMPLES=OFF \
     && cmake --build build --config Release --target llama-server -j$(nproc)
 
+# Корректно копируем бинарник и все скомпилированные .so библиотеки из подпапок build
 RUN cp build/bin/llama-server /app/llama-server && \
     find build -name "*.so*" -exec cp -P {} /usr/local/lib/ \; && \
     ldconfig
 
+# Переменные окружения для стабильной работы MI50 (gfx906) на платформе Xeon v2
 ENV HSA_OVERRIDE_GFX_VERSION=9.0.6
 
 ENTRYPOINT ["/app/llama-server"]

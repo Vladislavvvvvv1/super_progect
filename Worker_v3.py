@@ -234,7 +234,7 @@ class GPUWorker:
                     {"role": "user", "content": prompt}
                 ],
                 "temperature": 0.7,
-                "max_tokens": 2048
+                "max_tokens": 4096
             }
 
         print("[LLM] Отправка запроса в llama-server...")
