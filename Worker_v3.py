@@ -238,7 +238,7 @@ class GPUWorker:
             }
 
         print("[LLM] Отправка запроса в llama-server...")
-        resp = requests.post(f"{LLAMA_URL}/v1/chat/completions", json=payload, timeout=180)
+        resp = requests.post(f"{LLAMA_URL}/v1/chat/completions", json=payload, timeout=360)
         resp.raise_for_status()
 
         msg = resp.json()["choices"][0]["message"]
